@@ -24,6 +24,8 @@
 
 // NOTES:
 
+// [1.0.0.3a]
+// * added basic hex edit.
 // * fixed search crash when opening a new file.
 // * fix auto fill word select
 // * fill out the find text with the last find text when starting up.
