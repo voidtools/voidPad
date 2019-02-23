@@ -1,1 +1,1 @@
-#define VERSION_STRING	L"1.0.0.3a"
+#define VERSION_STRING	L"1.0.0.4a"
