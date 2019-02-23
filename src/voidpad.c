@@ -24,7 +24,10 @@
 
 // NOTES:
 
+// [1.0.0.4a]
+// * save to ini fix
 // [1.0.0.3a]
+// * Direct save
 // * added basic hex edit.
 // * fixed search crash when opening a new file.
 // * fix auto fill word select
@@ -4546,8 +4549,234 @@ static int viv_reg_read_string(HKEY hkey,wchar_t *name,wchar_t **pvalue)
 	return 0;
 }
 
+static unsigned char *ini_alloc_list_item(unsigned char *value,unsigned char **item)
+{
+	unsigned char *d;
+	unsigned char *p;
+	
+	if (!*value)
+	{
+		return 0;
+	}
+	
+	d = value;
+	p = value;
+	
+	while(*p)
+	{
+		if (*p == '"')
+		{
+			p++;
+			
+			while(*p)
+			{
+				if (*p == '"') 
+				{
+					p++;
+					
+					break;
+				}
+				else
+				if (*p == '\\')
+				{
+					p++;
+					switch(*p)
+					{
+						case '"': *d++ = '"'; break;
+						case 't': *d++ = 't'; break;
+						case '\\': *d++ = '\\'; break;
+						case 'n': *d++ = 'n'; break;
+						case 'r': *d++ = 'r'; break;
+					}
+					p++;
+				}
+				else
+				{
+					*d++ = *p;
+					
+					p++;
+				}
+			}
+		}
+		else
+		if ((*p == ';') || (*p == ','))
+		{
+			p++;
+			break;
+		}
+		else
+		{
+			*d++ = *p++;
+		}
+	}
+	
+	*d = 0;
+	
+	{
+		int wlen;
+		wchar_t *wbuf;
+		
+		wlen = MultiByteToWideChar(CP_UTF8,0,(char *)value,d-value,0,0);
+		
+		wbuf = mem_alloc((wlen + 1) * sizeof(wchar_t));
+		
+		MultiByteToWideChar(CP_UTF8,0,(char *)value,d-value,wbuf,wlen);
+		
+		wbuf[wlen] = 0;
+
+		*item = os_alloc_wchar_to_voidpad_cp(wbuf);
+		
+		mem_free(wbuf);
+	}
+	
+	return p;
+}
+
 static void voidpad_load_settings(void)
 {
+	wchar_t buf[MAX_PATH];
+	utf8_t *data;
+	
+	GetModuleFileName(0,buf,MAX_PATH);
+	PathRemoveFileSpec(buf);
+
+	PathAppend(buf,L"voidpad.ini");
+	
+	data = ini_open(buf);
+	if (data)
+	{
+		int is_voidpad_section;
+		unsigned char *p;
+	
+		is_voidpad_section = 0;
+		p = data;
+		
+		// skip utf8 headers.
+		if ((p[0] == 0xEF) && (p[1] == 0xBB) && (p[2] == 0xBF)) 
+		{
+			p += 3;
+		}
+		
+		while(*p)
+		{
+			unsigned char *key;
+			unsigned char *value;
+			unsigned char empty[1];
+
+			*empty = 0;
+			key = p;
+			value = empty;
+			
+			while(*p)
+			{
+				if ((*p == '\r') && (p[1] == '\n'))
+				{
+					*p = 0;
+					p += 2;
+					break;
+				}
+
+				if (*p == '\n') 
+				{
+					*p++ = 0;
+					break;
+				}
+				
+				if (*p == '=')
+				{
+					*p++ = 0;
+					
+					value = p;
+				}
+				else
+				{
+					p++;
+				}
+			}
+			
+			if (*key == '[')
+			{
+				is_voidpad_section = (string_compare(key,(unsigned char *)"[voidpad]") == 0);
+			}
+			else
+			if (is_voidpad_section)
+			{
+#ifdef VERSION_REGISTRATION
+				if (is_key)
+				{
+					ini_string(key,value,"name",&voidpad_registered_name);
+					ini_string(key,value,"key",&voidpad_registered_key);
+				}
+				else
+#endif
+				{
+					ini_int(key,value,"x",&window_x);
+					ini_int(key,value,"y",&window_y);
+					ini_int(key,value,"wide",&window_wide);
+					ini_int(key,value,"high",&window_high);
+
+					ini_int(key,value,"background_r",&background_r);
+					ini_int(key,value,"background_g",&background_g);
+					ini_int(key,value,"background_b",&background_b);
+					ini_int(key,value,"foreground_r",&foreground_r);
+					ini_int(key,value,"foreground_g",&foreground_g);
+					ini_int(key,value,"foreground_b",&foreground_b);
+					
+					ini_int(key,value,"selected_background_r",&selected_background_r);
+					ini_int(key,value,"selected_background_g",&selected_background_g);
+					ini_int(key,value,"selected_background_b",&selected_background_b);
+					ini_int(key,value,"selected_foreground_r",&selected_foreground_r);
+					ini_int(key,value,"selected_foreground_g",&selected_foreground_g);
+					ini_int(key,value,"selected_foreground_b",&selected_foreground_b);
+					
+					ini_int(key,value,"voidpad_tab_size",&voidpad_tab_size);
+					voidpad_tab_size = voidpad_clip_tabsize(voidpad_tab_size);
+					
+					ini_int(key,value,"insert_mode",&insert_mode);
+					ini_int(key,value,"clipboard_ring_size",&voidpad_clipboard_ring_size);
+					
+					ini_int(key,value,"view_white_space",&view_white_space);
+					ini_int(key,value,"select_all_bring_into_view",&voidpad_select_all_bring_into_view);
+					
+					ini_string(key,value,"font_bitmap_filename",&font_bitmap_filename);
+					ini_int(key,value,"font_cp",&voidpad_cp);
+					
+					if (ini_is_key(key,"find_history"))
+					{
+						unsigned char *listitem;
+
+						for(;;)								
+						{
+							value = ini_alloc_list_item(value,&listitem);
+							if (!value) break;
+					
+							find_add(listitem);
+														
+							mem_free(listitem);
+						}
+					}		
+										
+					if (ini_is_key(key,"replace_history"))
+					{
+						unsigned char *listitem;
+
+						for(;;)								
+						{
+							value = ini_alloc_list_item(value,&listitem);
+							if (!value) break;
+							
+							replace_add(listitem);
+							
+							mem_free(listitem);
+						}
+					}
+				}
+			}
+		}
+
+		mem_free(data);
+	}
+/*
 	HKEY hkey;
 	
 	if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,L"Software\\voidPad",0,KEY_READ,&hkey) == ERROR_SUCCESS)
@@ -4647,6 +4876,7 @@ static void voidpad_load_settings(void)
 
 		RegCloseKey(hkey);
 	}
+	*/
 }
 /*
 static unsigned char *ini_alloc_list_item(unsigned char *value,unsigned char **item)
